@@ -53,6 +53,7 @@ export function hints(template: string) {
 export const Default = {
   INIT: "init",
   REVIEW: "review",
+  RELOAD: "reload",
 } as const
 
 export interface Interface {
@@ -92,6 +93,13 @@ export const layer = Layer.effect(
         },
         subtask: true,
         hints: hints(PROMPT_REVIEW),
+      }
+      commands[Default.RELOAD] = {
+        name: Default.RELOAD,
+        description: "Reload configuration without restarting.",
+        source: "command",
+        template: "",
+        hints: [],
       }
 
       for (const [name, command] of Object.entries(cfg.command ?? {})) {

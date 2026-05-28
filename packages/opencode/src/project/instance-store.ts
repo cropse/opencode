@@ -8,6 +8,7 @@ import { Context, Deferred, Duration, Effect, Exit, Layer, Scope } from "effect"
 import { type InstanceContext } from "./instance-context"
 import { InstanceBootstrap } from "./bootstrap-service"
 import * as Project from "./project"
+import { ReloadGuard } from "./reload-guard"
 
 export interface LoadInput {
   directory: string
@@ -131,10 +132,23 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
             yield* Effect.logInfo("reloading instance").pipe(Effect.annotateLogs("directory", directory))
             if (previous) {
               yield* Deferred.await(previous.deferred).pipe(Effect.ignore)
-              yield* Effect.promise(() => runDisposers(directory))
-              yield* emitDisposed({ directory, project: input.project?.id })
             }
-            yield* completeLoad(directory, input, entry)
+            const exit = yield* Effect.exit(
+              ReloadGuard.atomicReload(
+                boot({ ...input, directory }),
+                Effect.gen(function* () {
+                  if (previous) {
+                    yield* Effect.promise(() => runDisposers(directory))
+                    yield* emitDisposed({ directory, project: input.project?.id })
+                  }
+                }),
+              ),
+            )
+            if (Exit.isFailure(exit)) {
+              if (previous) cache.set(directory, previous)
+              else cache.delete(directory)
+            }
+            yield* Deferred.done(entry.deferred, exit).pipe(Effect.asVoid)
           }).pipe(Effect.forkIn(scope, { startImmediately: true }))
           return yield* restore(Deferred.await(entry.deferred))
         }),

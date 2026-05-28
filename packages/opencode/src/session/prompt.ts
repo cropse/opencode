@@ -32,6 +32,7 @@ import { NamedError } from "@opencode-ai/core/util/error"
 import { SessionProcessor } from "./processor"
 import { Tool } from "@/tool/tool"
 import { Permission } from "@/permission"
+import { ReloadGuard } from "@/project/reload-guard"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { Shell } from "@/shell/shell"
@@ -44,6 +45,7 @@ import { Process } from "@/util/process"
 import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
+import { InstanceRuntime } from "@/project/instance-runtime"
 import { TaskTool, type TaskPromptOps } from "@/tool/task"
 import { SessionRunState } from "./run-state"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -129,6 +131,7 @@ export const layer = Layer.effect(
     const references = yield* Reference.Service
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
+    const reloadGuard = yield* ReloadGuard.Service
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -1512,6 +1515,75 @@ export const layer = Layer.effect(
 
     const command = Effect.fn("SessionPrompt.command")(function* (input: CommandInput) {
       yield* elog.info("command", { sessionID: input.sessionID, command: input.command, agent: input.agent })
+
+      if (input.command === Command.Default.RELOAD) {
+        if (input.arguments.trim()) {
+          const info: MessageV2.Assistant = {
+            id: MessageID.ascending(),
+            sessionID: input.sessionID,
+            role: "assistant",
+            time: { created: Date.now() },
+            parentID: MessageID.ascending(),
+            modelID: "" as unknown as ModelID,
+            providerID: "" as unknown as ProviderID,
+            mode: "",
+            agent: "",
+            path: { cwd: "", root: "" },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          }
+          return {
+            info,
+            parts: [
+              {
+                id: PartID.ascending(),
+                sessionID: input.sessionID,
+                messageID: info.id,
+                type: "text",
+                text: "/reload does not accept arguments.",
+              } satisfies MessageV2.TextPart,
+            ],
+          } satisfies MessageV2.WithParts
+        }
+        const ctx = yield* InstanceState.context
+        const reloadEffect = Effect.promise(() =>
+          InstanceRuntime.reloadInstance({ directory: ctx.directory }),
+        )
+        const result = yield* reloadGuard.run(reloadEffect).pipe(
+          Effect.catch((err) => Effect.succeed(err instanceof Error ? err : new Error("Reload failed."))),
+        )
+        const info: MessageV2.Assistant = {
+          id: MessageID.ascending(),
+          sessionID: input.sessionID,
+          role: "assistant",
+          time: { created: Date.now() },
+          parentID: MessageID.ascending(),
+          modelID: "" as unknown as ModelID,
+          providerID: "" as unknown as ProviderID,
+          mode: "",
+          agent: "",
+          path: result instanceof Error
+            ? { cwd: "", root: "" }
+            : { cwd: ctx.directory, root: ctx.worktree },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        }
+        return {
+          info,
+          parts: [
+            {
+              id: PartID.ascending(),
+              sessionID: input.sessionID,
+              messageID: info.id,
+              type: "text",
+              text: result instanceof Error
+                ? result.message
+                : "Reloaded configuration.",
+            } satisfies MessageV2.TextPart,
+          ],
+        } satisfies MessageV2.WithParts
+      }
+
       const cmd = yield* commands.get(input.command)
       if (!cmd) {
         const available = (yield* commands.list()).map((c) => c.name)
@@ -1669,6 +1741,7 @@ export const defaultLayer = Layer.suspend(() =>
         Bus.layer,
         CrossSpawnSpawner.defaultLayer,
         RuntimeFlags.defaultLayer,
+        ReloadGuard.defaultLayer,
       ),
     ),
   ),
