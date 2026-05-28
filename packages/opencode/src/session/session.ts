@@ -10,7 +10,7 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 
 import { Database } from "@/storage/db"
 import { NotFoundError } from "@/storage/storage"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { and } from "drizzle-orm"
 import { gte } from "drizzle-orm"
 import { isNull } from "drizzle-orm"
@@ -156,6 +156,10 @@ function getForkedTitle(title: string): string {
 
 function sessionPath(worktree: string, cwd: string) {
   return path.relative(path.resolve(worktree), cwd).replaceAll("\\", "/")
+}
+
+function normalizeDirectoryPath(input: string): string {
+  return input.replaceAll("\\", "/")
 }
 
 const Summary = Schema.Struct({
@@ -905,13 +909,13 @@ function* listByProject(
 
       conditions.push(
         input.directory
-          ? or(...conds, and(isNull(SessionTable.path), eq(SessionTable.directory, input.directory))!)!
+          ? or(...conds, and(isNull(SessionTable.path), sql`replace(${SessionTable.directory}, ${"\\"}, ${"/"}) = ${normalizeDirectoryPath(input.directory)}`)!)!
           : or(...conds)!,
       )
     }
   } else if (input.scope !== "project" && !input.experimentalWorkspaces) {
     if (input.directory) {
-      conditions.push(eq(SessionTable.directory, input.directory))
+      conditions.push(sql`replace(${SessionTable.directory}, ${"\\"}, ${"/"}) = ${normalizeDirectoryPath(input.directory)}`)
     }
   }
   if (input.roots) {

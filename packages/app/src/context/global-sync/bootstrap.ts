@@ -4,6 +4,7 @@ import type {
   Path,
   PermissionRequest,
   Project,
+  ProjectSidebarListResponse,
   ProviderAuthResponse,
   QuestionRequest,
   Session,
@@ -18,13 +19,14 @@ import type { State, VcsCache } from "./types"
 import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
 import { QueryClient, queryOptions } from "@tanstack/solid-query"
-import { loadMcpQuery } from "../server-sync"
+import { loadMcpQuery, loadSidebarQuery } from "../server-sync"
 import { NormalizedProviderListResponse } from "@opencode-ai/ui/context"
 
 type GlobalStore = {
   ready: boolean
   path: Path
   project: Project[]
+  sidebar: ProjectSidebarListResponse | undefined
   session_todo: {
     [sessionID: string]: Todo[]
   }
@@ -120,6 +122,10 @@ export async function bootstrapGlobal(input: {
       input.queryClient
         .fetchQuery(loadProjectsQuery(input.serverSDK))
         .then((data) => input.setGlobalStore("project", data)),
+    () =>
+      input.queryClient
+        .fetchQuery(loadSidebarQuery(input.serverSDK))
+        .then((data) => input.setGlobalStore("sidebar", reconcile(data, { key: "worktree" }))),
   ]
   await runAll(slow)
   // showErrors({

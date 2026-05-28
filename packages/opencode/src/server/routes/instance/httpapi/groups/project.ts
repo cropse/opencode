@@ -1,4 +1,5 @@
 import { Project } from "@/project/project"
+import { ProjectSidebar } from "@/project/project-sidebar"
 import { ProjectID } from "@/project/schema"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
@@ -60,6 +61,27 @@ export const ProjectApi = HttpApi.make("project")
             identifier: "project.update",
             summary: "Update project",
             description: "Update project properties such as name, icon, and commands.",
+          }),
+        ),
+        HttpApiEndpoint.get("sidebarList", `${root}/sidebar`, {
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Array(ProjectSidebar.Info), "Sidebar entries in order"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "project.sidebar.list",
+            summary: "List sidebar entries",
+            description: "Get the ordered sidebar entries for the current project.",
+          }),
+        ),
+        HttpApiEndpoint.put("sidebarReplace", `${root}/sidebar`, {
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Array(ProjectSidebar.Entry),
+          success: described(Schema.Array(ProjectSidebar.Info), "Updated sidebar entries"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "project.sidebar.replace",
+            summary: "Replace sidebar entries",
+            description: "Replace the full ordered sidebar list. Used for migration, reorder, open/close.",
           }),
         ),
       )

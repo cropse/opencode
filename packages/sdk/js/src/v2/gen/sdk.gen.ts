@@ -123,6 +123,10 @@ import type {
   ProjectInitGitResponses,
   ProjectListErrors,
   ProjectListResponses,
+  ProjectSidebarListErrors,
+  ProjectSidebarListResponses,
+  ProjectSidebarReplaceErrors,
+  ProjectSidebarReplaceResponses,
   ProjectUpdateErrors,
   ProjectUpdateResponses,
   Prompt,
@@ -2231,6 +2235,84 @@ export class Mcp extends HeyApiClient {
   }
 }
 
+export class Sidebar extends HeyApiClient {
+  /**
+   * List sidebar entries
+   *
+   * Get the ordered sidebar entries for the current project.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ProjectSidebarListResponses, ProjectSidebarListErrors, ThrowOnError>({
+      url: "/project/sidebar",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Replace sidebar entries
+   *
+   * Replace the full ordered sidebar list. Used for migration, reorder, open/close.
+   */
+  public replace<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      body?: Array<{
+        projectID: string
+        worktree: string
+        expanded: boolean
+        order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      ProjectSidebarReplaceResponses,
+      ProjectSidebarReplaceErrors,
+      ThrowOnError
+    >({
+      url: "/project/sidebar",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Project extends HeyApiClient {
   /**
    * List all projects
@@ -2372,6 +2454,11 @@ export class Project extends HeyApiClient {
         ...params.headers,
       },
     })
+  }
+
+  private _sidebar?: Sidebar
+  get sidebar(): Sidebar {
+    return (this._sidebar ??= new Sidebar({ client: this.client }))
   }
 }
 

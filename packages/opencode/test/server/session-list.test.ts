@@ -2,7 +2,7 @@ import { afterEach, describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Session as SessionNs } from "@/session/session"
 import * as Log from "@opencode-ai/core/util/log"
-import { disposeAllInstances, provideInstance, TestInstance } from "../fixture/fixture"
+import { disposeAllInstances, provideInstance, TestInstance, tmpdir } from "../fixture/fixture"
 import { mkdir } from "fs/promises"
 import path from "path"
 import { Database } from "@/storage/db"
@@ -14,6 +14,7 @@ import { Storage } from "@/storage/storage"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { BackgroundJob } from "@/background/job"
+import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 
 void Log.init({ print: false })
 const it = testEffect(
@@ -23,6 +24,7 @@ const it = testEffect(
     Layer.provide(SyncEvent.defaultLayer),
     Layer.provide(RuntimeFlags.layer({ experimentalWorkspaces: false })),
     Layer.provide(BackgroundJob.defaultLayer),
+    Layer.provide(CrossSpawnSpawner.defaultLayer),
   ),
 )
 
@@ -224,6 +226,100 @@ describe("session.list", () => {
 
         const sessions = yield* SessionNs.use.list({ limit: 2 })
         expect(sessions.length).toBe(2)
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "matches Windows backslash directory with forward slash query",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const subDir = path.join(test.directory, "packages", "opencode")
+        yield* Effect.promise(() => mkdir(subDir, { recursive: true }))
+
+        const session = yield* withSession({ title: "win-session" }).pipe(provideInstance(subDir))
+
+        const backslashDir = subDir.replaceAll("/", "\\")
+        yield* Effect.sync(() =>
+          Database.use((db) =>
+            db.update(SessionTable).set({ directory: backslashDir }).where(eq(SessionTable.id, session.id)).run(),
+          ),
+        )
+
+        const ids = (yield* SessionNs.Service.use((s) => s.list({ directory: subDir }))).map((s) => s.id)
+        expect(ids).toContain(session.id)
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "matches forward slash directory with backslash query",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const subDir = path.join(test.directory, "packages", "opencode")
+        yield* Effect.promise(() => mkdir(subDir, { recursive: true }))
+
+        const session = yield* withSession({ title: "fwd-session" }).pipe(provideInstance(subDir))
+
+        const backslashDir = subDir.replaceAll("/", "\\")
+        const ids = (yield* SessionNs.Service.use((s) => s.list({ directory: backslashDir }))).map((s) => s.id)
+        expect(ids).toContain(session.id)
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "returns legacy null-path session by normalized directory",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const subDir = path.join(test.directory, "packages", "opencode")
+        yield* Effect.promise(() => mkdir(subDir, { recursive: true }))
+
+        const session = yield* withSession({ title: "legacy-norm" }).pipe(provideInstance(subDir))
+
+        const backslashDir = subDir.replaceAll("/", "\\")
+        yield* Effect.sync(() =>
+          Database.use((db) =>
+            db
+              .update(SessionTable)
+              .set({ path: null, directory: backslashDir })
+              .where(eq(SessionTable.id, session.id))
+              .run(),
+          ),
+        )
+
+        const ids = (yield* SessionNs.Service.use((s) =>
+          s.list({ directory: subDir, path: "packages/opencode" }),
+        )).map((s) => s.id)
+        expect(ids).toContain(session.id)
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "does not leak sessions across different project IDs with same basename",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const subDir = path.join(test.directory, "myproject")
+        yield* Effect.promise(() => mkdir(subDir, { recursive: true }))
+
+        const session1 = yield* withSession({ title: "project-1-session" }).pipe(provideInstance(subDir))
+
+        const otherTmp = yield* Effect.promise(() => tmpdir({ git: true }))
+        const otherSubDir = path.join(otherTmp.path, "myproject")
+        yield* Effect.promise(() => mkdir(otherSubDir, { recursive: true }))
+
+        const session2 = yield* withSession({ title: "project-2-session" }).pipe(provideInstance(otherSubDir))
+
+        const ids = (yield* SessionNs.Service.use((s) => s.list({ directory: subDir }))).map((s) => s.id)
+        expect(ids).toContain(session1.id)
+        expect(ids).not.toContain(session2.id)
+
+        yield* Effect.promise(() => otherTmp[Symbol.asyncDispose]())
       }),
     { git: true },
   )

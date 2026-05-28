@@ -1,4 +1,12 @@
-import type { Config, OpencodeClient, Path, Project, ProviderAuthResponse, Todo } from "@opencode-ai/sdk/v2/client"
+import type {
+  Config,
+  OpencodeClient,
+  Path,
+  Project,
+  ProjectSidebarListResponse,
+  ProviderAuthResponse,
+  Todo,
+} from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { batch, createContext, getOwner, onCleanup, onMount, type ParentProps, untrack, useContext } from "solid-js"
@@ -32,11 +40,14 @@ import { createDirSyncContext } from "./directory-sync"
 import { createSimpleContext, NormalizedProviderListResponse } from "@opencode-ai/ui/context"
 import { createRefCountMap } from "@/utils/refcount"
 
+type SidebarEntry = ProjectSidebarListResponse[number]
+
 type GlobalStore = {
   ready: boolean
   error?: InitError
   path: Path
   project: Project[]
+  sidebar: SidebarEntry[] | undefined
   session_todo: {
     [sessionID: string]: Todo[]
   }
@@ -58,10 +69,17 @@ export const loadLspQuery = (directory: string, sdk: OpencodeClient) =>
     queryFn: () => sdk.lsp.status().then((r) => r.data ?? []),
   })
 
+export const loadSidebarQuery = (sdk: OpencodeClient) =>
+  queryOptions({
+    queryKey: ["project", "sidebar"] as const,
+    queryFn: () => sdk.project.sidebar.list().then((r) => r.data ?? []),
+  })
+
 function makeQueryOptionsApi(serverSDK: () => OpencodeClient, sdkFor: (dir: PathKey) => OpencodeClient) {
   return {
     globalConfig: () => loadGlobalConfigQuery(serverSDK()),
     projects: () => loadProjectsQuery(serverSDK()),
+    sidebar: () => loadSidebarQuery(serverSDK()),
     providers: (directory: PathKey | null) =>
       loadProvidersQuery(directory, directory === null ? serverSDK() : sdkFor(directory)),
     path: (directory: PathKey | null) => loadPathQuery(directory, directory === null ? serverSDK() : sdkFor(directory)),
@@ -107,6 +125,7 @@ export function createServerSyncContext() {
       return bootstrap.isPending
     },
     project: [],
+    sidebar: undefined,
     session_todo: {},
     provider_auth: {},
     get path() {
@@ -342,6 +361,9 @@ export function createServerSyncContext() {
     const recent = bootingRoot || Date.now() - bootedAt < 1500
 
     if (directory === "global") {
+      if (event.type === "project.sidebar.updated") {
+        setGlobalStore("sidebar", reconcile(event.properties, { key: "worktree" }))
+      }
       applyGlobalEvent({
         event,
         project: globalStore.project,
@@ -407,6 +429,20 @@ export function createServerSyncContext() {
 
   const projectApi = {
     loadSessions,
+    async loadSidebar() {
+      const entries = await queryClient.fetchQuery(queryOptionsApi.sidebar())
+      setGlobalStore("sidebar", reconcile(entries, { key: "worktree" }))
+      return entries
+    },
+    async replaceSidebar(entries: Array<{ projectID: string; worktree: string; expanded: boolean; order?: number }>) {
+      const response = await serverSDK.client.project.sidebar.replace({
+        body: entries.map((entry, index) => ({ ...entry, order: entry.order ?? index })),
+      })
+      const next = response.data ?? []
+      setGlobalStore("sidebar", reconcile(next, { key: "worktree" }))
+      queryClient.setQueryData(queryOptionsApi.sidebar().queryKey, next)
+      return next
+    },
     meta(directory: string, patch: ProjectMeta) {
       children.projectMeta(directory, patch)
     },
@@ -438,7 +474,6 @@ export function createServerSyncContext() {
     child: children.child,
     peek: children.peek,
     queryOptions: queryOptionsApi,
-    // bootstrap,
     updateConfig: updateConfigMutation.mutateAsync,
     project: projectApi,
     todo: {

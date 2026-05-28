@@ -19,6 +19,7 @@ export interface MockServerConfig {
   sessions: ({ id: string } & Record<string, unknown>)[]
   pageMessages: (sessionId: string, limit: number, before?: string) => { items: unknown[]; cursor?: string }
   events?: () => unknown[]
+  sidebar?: unknown[]
 }
 
 export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
@@ -33,6 +34,7 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     },
     "/project": [config.project],
     "/project/current": config.project,
+    "/project/sidebar": config.sidebar ?? [],
     "/agent": [{ name: "build", mode: "primary" }],
     "/vcs": { branch: "main", default_branch: "main" },
     "/session": config.sessions,
@@ -65,6 +67,8 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       const pageData = config.pageMessages(messagesMatch[1], limit, before)
       return json(route, pageData.items, pageData.cursor ? { "x-next-cursor": pageData.cursor } : undefined)
     }
+
+    if (route.request().method() === "PUT" && path === "/project/sidebar") return json(route, { ok: true })
 
     return json(route, {})
   })

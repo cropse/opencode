@@ -385,12 +385,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       return available[Math.floor(Math.random() * available.length)]
     }
 
-    function enrich(project: { worktree: string; expanded: boolean }) {
+    function enrich(project: { worktree: string; expanded: boolean; projectID?: string }) {
       const [childStore] = serverSync.child(project.worktree, { bootstrap: false })
-      const projectID = childStore.project
-      const metadata = projectID
-        ? serverSync.data.project.find((x) => x.id === projectID)
-        : serverSync.data.project.find((x) => x.worktree === project.worktree)
+      const projectID = project.projectID || childStore.project
+      const metadata = serverProject(project.worktree) ?? (projectID ? serverSync.data.project.find((x) => x.id === projectID) : undefined)
 
       // Preserve local icon override from per-workspace localStorage cache (childStore.icon).
       // Without this, different subdirectories of the same git repo would share the same
@@ -401,6 +399,28 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       }
       return base
     }
+
+    const serverSidebarLoaded = createMemo(() => !!serverSync.data.sidebar)
+    const sidebarEntries = createMemo(() => serverSync.data.sidebar ?? server.projects.list())
+    const entryFor = (entry: { worktree: string; expanded: boolean; projectID?: string }, index: number) => {
+      const project = serverProject(entry.worktree)
+      const projectID = entry.projectID ?? project?.id
+      if (!projectID) return
+      return {
+        projectID,
+        worktree: entry.worktree,
+        expanded: entry.expanded,
+        order: index,
+      }
+    }
+    const replaceSidebar = (entries: Array<{ worktree: string; expanded: boolean }>) =>
+      serverSync.project.replaceSidebar(entries.map(entryFor).filter((entry) => !!entry))
+    const updateSidebar = (apply: (entries: Array<{ worktree: string; expanded: boolean }>) => Array<{ worktree: string; expanded: boolean }>) => {
+      const next = apply(sidebarEntries())
+      if (!serverSidebarLoaded()) return
+      void replaceSidebar(next)
+    }
+    const serverProject = (worktree: string) => serverSync.data.project.find((project) => project.worktree === worktree)
 
     const roots = createMemo(() => {
       const map = new Map<string, string>()
@@ -436,27 +456,45 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     }
 
     createEffect(() => {
-      const projects = server.projects.list()
-      const seen = new Set(projects.map((project) => project.worktree))
-
-      batch(() => {
-        for (const project of projects) {
-          const root = rootFor(project.worktree)
-          if (root === project.worktree) continue
-
-          server.projects.close(project.worktree)
-
-          if (!seen.has(root)) {
-            server.projects.open(root)
-            seen.add(root)
-          }
-
-          if (project.expanded) server.projects.expand(root)
-        }
-      })
+      if (!serverSync.ready) return
+      void serverSync.project.loadSidebar()
     })
 
-    const enriched = createMemo(() => server.projects.list().map(enrich))
+    // One-time migration: seed server sidebar from localStorage when server returns empty
+    let sidebarMigrated = false
+    createEffect(() => {
+      if (sidebarMigrated) return
+      if (!serverSync.ready) return
+      const sidebar = serverSync.data.sidebar
+      if (sidebar === undefined) return
+
+      sidebarMigrated = true
+      if (sidebar.length > 0) return
+
+      const localEntries = server.projects.list()
+      if (localEntries.length === 0) return
+
+      void replaceSidebar(localEntries)
+    })
+
+    createEffect(() => {
+      const projects = sidebarEntries()
+      const seen = new Set(projects.map((project) => project.worktree))
+      const changed = projects.some((project) => rootFor(project.worktree) !== project.worktree)
+      if (!changed) return
+
+      void replaceSidebar(
+        projects.flatMap((project) => {
+          const root = rootFor(project.worktree)
+          if (root === project.worktree) return [project]
+          if (seen.has(root)) return []
+          seen.add(root)
+          return [{ ...project, worktree: root }]
+        }),
+      )
+    })
+
+    const enriched = createMemo(() => sidebarEntries().map(enrich))
     const list = createMemo(() => {
       const projects = enriched()
       return projects.map((project) => {
@@ -530,7 +568,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         sessionTimer = window.setTimeout(() => {
           sessionTimer = undefined
           void Promise.all(
-            server.projects.list().map((project) => {
+            sidebarEntries().map((project) => {
               return serverSync.project.loadSessions(project.worktree)
             }),
           )
@@ -559,21 +597,33 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         list,
         open(directory: string) {
           const root = rootFor(directory)
-          if (server.projects.list().find((x) => x.worktree === root)) return
+          if (sidebarEntries().find((x) => x.worktree === root)) return
           void serverSync.project.loadSessions(root)
           server.projects.open(root)
+          updateSidebar((entries) => [{ worktree: root, expanded: true }, ...entries])
         },
         close(directory: string) {
           server.projects.close(directory)
+          updateSidebar((entries) => entries.filter((entry) => entry.worktree !== directory))
         },
         expand(directory: string) {
           server.projects.expand(directory)
+          updateSidebar((entries) => entries.map((entry) => (entry.worktree === directory ? { ...entry, expanded: true } : entry)))
         },
         collapse(directory: string) {
           server.projects.collapse(directory)
+          updateSidebar((entries) => entries.map((entry) => (entry.worktree === directory ? { ...entry, expanded: false } : entry)))
         },
         move(directory: string, toIndex: number) {
           server.projects.move(directory, toIndex)
+          updateSidebar((entries) => {
+            const fromIndex = entries.findIndex((entry) => entry.worktree === directory)
+            if (fromIndex === -1 || fromIndex === toIndex) return entries
+            const result = [...entries]
+            const [item] = result.splice(fromIndex, 1)
+            result.splice(toIndex, 0, item)
+            return result
+          })
         },
       },
       sidebar: {

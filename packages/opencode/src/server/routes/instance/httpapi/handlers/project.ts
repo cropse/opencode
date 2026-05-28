@@ -1,5 +1,7 @@
 import * as InstanceState from "@/effect/instance-state"
+import { GlobalBus } from "@/bus/global"
 import { Project } from "@/project/project"
+import { ProjectSidebar } from "@/project/project-sidebar"
 import { ProjectID } from "@/project/schema"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
@@ -10,6 +12,7 @@ import { markInstanceForReload } from "../lifecycle"
 export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", (handlers) =>
   Effect.gen(function* () {
     const svc = yield* Project.Service
+    const sidebar = yield* ProjectSidebar.Service
 
     const list = Effect.fn("ProjectHttpApi.list")(function* () {
       return yield* svc.list()
@@ -48,6 +51,35 @@ export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", 
       )
     })
 
-    return handlers.handle("list", list).handle("current", current).handle("initGit", initGit).handle("update", update)
+    const sidebarList = Effect.fn("ProjectHttpApi.sidebarList")(function* () {
+      return yield* sidebar.list()
+    })
+
+    const MAX_SIDEBAR_ENTRIES = 200
+
+    const sidebarReplace = Effect.fn("ProjectHttpApi.sidebarReplace")(function* (ctx: {
+      payload: readonly ProjectSidebar.Entry[]
+    }) {
+      const validated = ctx.payload
+        .filter((e) => e.worktree.trim().length > 0)
+        .slice(0, MAX_SIDEBAR_ENTRIES)
+      yield* sidebar.replace([...validated])
+      const items = yield* sidebar.list()
+      yield* Effect.sync(() =>
+        GlobalBus.emit("event", {
+          directory: "global",
+          payload: { type: ProjectSidebar.Event.Updated.type, properties: items },
+        }),
+      )
+      return items
+    })
+
+    return handlers
+      .handle("list", list)
+      .handle("current", current)
+      .handle("initGit", initGit)
+      .handle("update", update)
+      .handle("sidebarList", sidebarList)
+      .handle("sidebarReplace", sidebarReplace)
   }),
 )
