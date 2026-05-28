@@ -19,6 +19,7 @@ import { like } from "drizzle-orm"
 import { inArray } from "drizzle-orm"
 import { lt } from "drizzle-orm"
 import { or } from "drizzle-orm"
+import { sql } from "drizzle-orm"
 import { SyncEvent } from "../sync"
 import type { SQL } from "drizzle-orm"
 import { PartTable, SessionTable } from "./session.sql"
@@ -156,6 +157,10 @@ function getForkedTitle(title: string): string {
 
 function sessionPath(worktree: string, cwd: string) {
   return path.relative(path.resolve(worktree), cwd).replaceAll("\\", "/")
+}
+
+function normalizeDirPath(p: string): string {
+  return p.replaceAll("\\", "/")
 }
 
 const Summary = Schema.Struct({
@@ -905,13 +910,13 @@ function* listByProject(
 
       conditions.push(
         input.directory
-          ? or(...conds, and(isNull(SessionTable.path), eq(SessionTable.directory, input.directory))!)!
+          ? or(...conds, and(isNull(SessionTable.path), sql`replace(${SessionTable.directory}, '\\', '/') = ${normalizeDirPath(input.directory)}`))!
           : or(...conds)!,
       )
     }
   } else if (input.scope !== "project" && !input.experimentalWorkspaces) {
     if (input.directory) {
-      conditions.push(eq(SessionTable.directory, input.directory))
+      conditions.push(sql`replace(${SessionTable.directory}, '\\', '/') = ${normalizeDirPath(input.directory)}`)
     }
   }
   if (input.roots) {
@@ -952,7 +957,7 @@ export function* listGlobal(input?: {
   const conditions: SQL[] = []
 
   if (input?.directory) {
-    conditions.push(eq(SessionTable.directory, input.directory))
+    conditions.push(sql`replace(${SessionTable.directory}, '\\', '/') = ${normalizeDirPath(input.directory)}`)
   }
   if (input?.roots) {
     conditions.push(isNull(SessionTable.parent_id))
