@@ -376,7 +376,12 @@ export function createServerSyncContext() {
     }
 
     const existing = children.children[key]
-    if (!existing) return
+    if (!existing) {
+      if (event.type.startsWith("session.")) {
+        void loadSessions(directory)
+      }
+      return
+    }
     children.mark(key)
     const [store, setStore] = existing
     applyDirectoryEvent({
