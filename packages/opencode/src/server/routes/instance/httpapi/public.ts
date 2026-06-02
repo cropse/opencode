@@ -137,6 +137,10 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
             : operation.requestBody.content?.["application/json"]?.schema?.properties
           if (properties?.id) properties.id = { anyOf: [properties.id, { type: "null" }] }
         }
+        if (path === "/project/sidebar" && method === "put") {
+          const properties = operation.requestBody.content?.["application/json"]?.schema?.items?.properties
+          if (properties?.projectID) properties.projectID = nullable(properties.projectID)
+        }
       }
       for (const response of Object.values(operation.responses ?? {})) {
         for (const content of Object.values(response.content ?? {})) {
@@ -267,6 +271,10 @@ function applyLegacySchemaOverrides(spec: OpenApiSpec) {
   }
   if (schemas.GlobalSession?.properties?.project)
     schemas.GlobalSession.properties.project = nullable(schemas.GlobalSession.properties.project)
+  if (schemas.ProjectSidebar?.properties?.projectID)
+    schemas.ProjectSidebar.properties.projectID = nullable(schemas.ProjectSidebar.properties.projectID)
+  if (schemas.ProjectSidebarEntry?.properties?.projectID)
+    schemas.ProjectSidebarEntry.properties.projectID = nullable(schemas.ProjectSidebarEntry.properties.projectID)
   const providerOptions = schemas.ProviderConfig?.properties?.options
   if (providerOptions) providerOptions.additionalProperties = {}
   const model = schemas.ProviderConfig?.properties?.models?.additionalProperties

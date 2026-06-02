@@ -5,12 +5,6 @@ export type ClientOptions = {
 }
 
 export type Event =
-  | EventTuiPromptAppend
-  | EventTuiCommandExecute
-  | EventTuiToastShow1
-  | EventTuiSessionSelect
-  | EventServerConnected
-  | EventGlobalDisposed
   | EventServerInstanceDisposed
   | EventFileEdited
   | EventFileWatcherUpdated
@@ -27,6 +21,10 @@ export type Event =
   | EventTodoUpdated
   | EventSessionStatus
   | EventSessionIdle
+  | EventTuiPromptAppend
+  | EventTuiCommandExecute
+  | EventTuiToastShow1
+  | EventTuiSessionSelect
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -77,11 +75,13 @@ export type Event =
   | EventSessionNextCompactionStarted
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
-  | EventCatalogModelUpdated
+  | EventServerConnected
+  | EventGlobalDisposed
   | EventModelsDevRefreshed
   | EventAccountAdded
   | EventAccountRemoved
   | EventAccountSwitched
+  | EventCatalogModelUpdated
 
 export type OAuth = {
   type: "oauth"
@@ -117,61 +117,6 @@ export type InvalidRequestError = {
   message: string
   kind?: string
   field?: string
-}
-
-export type EventTuiPromptAppend = {
-  id: string
-  type: "tui.prompt.append"
-  properties: {
-    text: string
-  }
-}
-
-export type EventTuiCommandExecute = {
-  id: string
-  type: "tui.command.execute"
-  properties: {
-    command:
-      | "session.list"
-      | "session.new"
-      | "session.share"
-      | "session.interrupt"
-      | "session.compact"
-      | "session.page.up"
-      | "session.page.down"
-      | "session.line.up"
-      | "session.line.down"
-      | "session.half.page.up"
-      | "session.half.page.down"
-      | "session.first"
-      | "session.last"
-      | "prompt.clear"
-      | "prompt.submit"
-      | "agent.cycle"
-      | string
-  }
-}
-
-export type EventTuiToastShow = {
-  id: string
-  type: "tui.toast.show"
-  properties: {
-    title?: string
-    message: string
-    variant: "info" | "success" | "warning" | "error"
-    duration?: number
-  }
-}
-
-export type EventTuiSessionSelect = {
-  id: string
-  type: "tui.session.select"
-  properties: {
-    /**
-     * Session ID to navigate to
-     */
-    sessionID: string
-  }
 }
 
 export type PermissionRequest = {
@@ -351,6 +296,61 @@ export type SessionStatus =
   | {
       type: "busy"
     }
+
+export type EventTuiPromptAppend = {
+  id: string
+  type: "tui.prompt.append"
+  properties: {
+    text: string
+  }
+}
+
+export type EventTuiCommandExecute = {
+  id: string
+  type: "tui.command.execute"
+  properties: {
+    command:
+      | "session.list"
+      | "session.new"
+      | "session.share"
+      | "session.interrupt"
+      | "session.compact"
+      | "session.page.up"
+      | "session.page.down"
+      | "session.line.up"
+      | "session.line.down"
+      | "session.half.page.up"
+      | "session.half.page.down"
+      | "session.first"
+      | "session.last"
+      | "prompt.clear"
+      | "prompt.submit"
+      | "agent.cycle"
+      | string
+  }
+}
+
+export type EventTuiToastShow = {
+  id: string
+  type: "tui.toast.show"
+  properties: {
+    title?: string
+    message: string
+    variant: "info" | "success" | "warning" | "error"
+    duration?: number
+  }
+}
+
+export type EventTuiSessionSelect = {
+  id: string
+  type: "tui.session.select"
+  properties: {
+    /**
+     * Session ID to navigate to
+     */
+    sessionID: string
+  }
+}
 
 export type Project = {
   id: string
@@ -806,12 +806,6 @@ export type GlobalEvent = {
   project?: string
   workspace?: string
   payload:
-    | EventTuiPromptAppend
-    | EventTuiCommandExecute
-    | EventTuiToastShow
-    | EventTuiSessionSelect
-    | EventServerConnected
-    | EventGlobalDisposed
     | EventServerInstanceDisposed
     | EventFileEdited
     | EventFileWatcherUpdated
@@ -828,6 +822,10 @@ export type GlobalEvent = {
     | EventTodoUpdated
     | EventSessionStatus
     | EventSessionIdle
+    | EventTuiPromptAppend
+    | EventTuiCommandExecute
+    | EventTuiToastShow
+    | EventTuiSessionSelect
     | EventMcpToolsChanged
     | EventMcpBrowserOpenFailed
     | EventCommandExecuted
@@ -878,11 +876,13 @@ export type GlobalEvent = {
     | EventSessionNextCompactionStarted
     | EventSessionNextCompactionDelta
     | EventSessionNextCompactionEnded
-    | EventCatalogModelUpdated
+    | EventServerConnected
+    | EventGlobalDisposed
     | EventModelsDevRefreshed
     | EventAccountAdded
     | EventAccountRemoved
     | EventAccountSwitched
+    | EventCatalogModelUpdated
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
     | SyncEventMessagePartUpdated
@@ -1710,6 +1710,18 @@ export type ProjectNotFoundError = {
   message: string
 }
 
+export type ProjectSidebar = {
+  id: string
+  projectID: string | null
+  worktree: string
+  order: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  expanded: boolean
+  time: {
+    created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
 export type PtyNotFoundError = {
   _tag: "PtyNotFoundError"
   ptyID: string
@@ -2503,22 +2515,6 @@ export type SyncEventSessionNextCompactionEnded = {
   }
 }
 
-export type EventServerConnected = {
-  id: string
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  id: string
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
 export type EventServerInstanceDisposed = {
   id: string
   type: "server.instance.disposed"
@@ -3245,6 +3241,80 @@ export type EventSessionNextCompactionEnded = {
   }
 }
 
+export type EventServerConnected = {
+  id: string
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  id: string
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventModelsDevRefreshed = {
+  id: string
+  type: "models-dev.refreshed"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type AccountV2oAuthCredential = {
+  type: "oauth"
+  refresh: string
+  access: string
+  expires: number
+}
+
+export type AccountV2ApiKeyCredential = {
+  type: "api"
+  key: string
+  metadata?: {
+    [key: string]: string
+  }
+}
+
+export type AccountV2Credential = AccountV2oAuthCredential | AccountV2ApiKeyCredential
+
+export type AccountV2Info = {
+  id: string
+  serviceID: string
+  description: string
+  credential: AccountV2Credential
+}
+
+export type EventAccountAdded = {
+  id: string
+  type: "account.added"
+  properties: {
+    account: AccountV2Info
+  }
+}
+
+export type EventAccountRemoved = {
+  id: string
+  type: "account.removed"
+  properties: {
+    account: AccountV2Info
+  }
+}
+
+export type EventAccountSwitched = {
+  id: string
+  type: "account.switched"
+  properties: {
+    serviceID: string
+    from?: string
+    to?: string
+  }
+}
+
 export type ModelV2Info = {
   id: string
   apiID: string
@@ -3348,64 +3418,6 @@ export type EventCatalogModelUpdated = {
   type: "catalog.model.updated"
   properties: {
     model: ModelV2Info
-  }
-}
-
-export type EventModelsDevRefreshed = {
-  id: string
-  type: "models-dev.refreshed"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type AccountV2oAuthCredential = {
-  type: "oauth"
-  refresh: string
-  access: string
-  expires: number
-}
-
-export type AccountV2ApiKeyCredential = {
-  type: "api"
-  key: string
-  metadata?: {
-    [key: string]: string
-  }
-}
-
-export type AccountV2Credential = AccountV2oAuthCredential | AccountV2ApiKeyCredential
-
-export type AccountV2Info = {
-  id: string
-  serviceID: string
-  description: string
-  credential: AccountV2Credential
-}
-
-export type EventAccountAdded = {
-  id: string
-  type: "account.added"
-  properties: {
-    account: AccountV2Info
-  }
-}
-
-export type EventAccountRemoved = {
-  id: string
-  type: "account.removed"
-  properties: {
-    account: AccountV2Info
-  }
-}
-
-export type EventAccountSwitched = {
-  id: string
-  type: "account.switched"
-  properties: {
-    serviceID: string
-    from?: string
-    to?: string
   }
 }
 
@@ -5473,6 +5485,66 @@ export type ProjectUpdateResponses = {
 }
 
 export type ProjectUpdateResponse = ProjectUpdateResponses[keyof ProjectUpdateResponses]
+
+export type ProjectSidebarListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/sidebar"
+}
+
+export type ProjectSidebarListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProjectSidebarListError = ProjectSidebarListErrors[keyof ProjectSidebarListErrors]
+
+export type ProjectSidebarListResponses = {
+  /**
+   * Sidebar entries in order
+   */
+  200: Array<ProjectSidebar>
+}
+
+export type ProjectSidebarListResponse = ProjectSidebarListResponses[keyof ProjectSidebarListResponses]
+
+export type ProjectSidebarReplaceData = {
+  body?: Array<{
+    projectID: string | null
+    worktree: string
+    expanded: boolean
+  }>
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/sidebar"
+}
+
+export type ProjectSidebarReplaceErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProjectSidebarReplaceError = ProjectSidebarReplaceErrors[keyof ProjectSidebarReplaceErrors]
+
+export type ProjectSidebarReplaceResponses = {
+  /**
+   * Updated sidebar entries
+   */
+  200: Array<ProjectSidebar>
+}
+
+export type ProjectSidebarReplaceResponse = ProjectSidebarReplaceResponses[keyof ProjectSidebarReplaceResponses]
 
 export type PtyShellsData = {
   body?: never

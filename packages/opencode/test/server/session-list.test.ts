@@ -2,7 +2,7 @@ import { afterEach, describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Session as SessionNs } from "@/session/session"
 import * as Log from "@opencode-ai/core/util/log"
-import { disposeAllInstances, provideInstance, TestInstance } from "../fixture/fixture"
+import { disposeAllInstances, provideInstance, TestInstance, tmpdir } from "../fixture/fixture"
 import { mkdir } from "fs/promises"
 import path from "path"
 import { Database } from "@/storage/db"
@@ -224,6 +224,96 @@ describe("session.list", () => {
 
         const sessions = yield* SessionNs.use.list({ limit: 2 })
         expect(sessions.length).toBe(2)
+      }),
+    { git: true },
+  )
+
+  // Regression tests for GitHub issue #24035 - Windows path separator and cross-project session visibility
+
+  it.instance(
+    "matches Windows backslash directory with forward slash query",
+    () =>
+      Effect.gen(function* () {
+        const session = yield* withSession({ title: "windows-backslash" })
+        yield* Effect.sync(() =>
+          Database.use((db) =>
+            db
+              .update(SessionTable)
+              .set({ directory: "C:\\Users\\test\\repo", path: null })
+              .where(eq(SessionTable.id, session.id))
+              .run(),
+          ),
+        )
+        const sessions = yield* SessionNs.Service.use((s) =>
+          s.list({ directory: "C:/Users/test/repo" }),
+        )
+        expect(sessions.map((s) => s.id)).toContain(session.id)
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "matches forward slash directory with backslash query",
+    () =>
+      Effect.gen(function* () {
+        const session = yield* withSession({ title: "forward-slash" })
+        yield* Effect.sync(() =>
+          Database.use((db) =>
+            db
+              .update(SessionTable)
+              .set({ directory: "C:/Users/test/repo", path: null })
+              .where(eq(SessionTable.id, session.id))
+              .run(),
+          ),
+        )
+        const sessions = yield* SessionNs.Service.use((s) =>
+          s.list({ directory: "C:\\Users\\test\\repo" }),
+        )
+        expect(sessions.map((s) => s.id)).toContain(session.id)
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "returns legacy null-path session by normalized directory",
+    () =>
+      Effect.gen(function* () {
+        const session = yield* withSession({ title: "legacy-windows" })
+        yield* Effect.sync(() =>
+          Database.use((db) =>
+            db
+              .update(SessionTable)
+              .set({ directory: "C:\\Users\\test\\repo\\packages\\app", path: null })
+              .where(eq(SessionTable.id, session.id))
+              .run(),
+          ),
+        )
+        const sessions = yield* SessionNs.Service.use((s) =>
+          s.list({ path: "packages/app", directory: "C:/Users/test/repo/packages/app" }),
+        )
+        expect(sessions.map((s) => s.id)).toContain(session.id)
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "does not leak sessions across different project IDs with same basename",
+    () =>
+      Effect.gen(function* () {
+        const otherDir = yield* Effect.promise(() => tmpdir({ git: true }).then((t) => t.path))
+
+        const mainSession = yield* withSession({ title: "main-project" })
+        const otherSession = yield* withSession({ title: "other-project" }).pipe(provideInstance(otherDir))
+
+        // Main project should not see other project's sessions
+        const mainIds = (yield* SessionNs.use.list()).map((s) => s.id)
+        expect(mainIds).toContain(mainSession.id)
+        expect(mainIds).not.toContain(otherSession.id)
+
+        // Other project should not see main project's sessions
+        const otherIds = (yield* SessionNs.use.list().pipe(provideInstance(otherDir))).map((s) => s.id)
+        expect(otherIds).toContain(otherSession.id)
+        expect(otherIds).not.toContain(mainSession.id)
       }),
     { git: true },
   )

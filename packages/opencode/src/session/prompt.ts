@@ -32,6 +32,7 @@ import { NamedError } from "@opencode-ai/core/util/error"
 import { SessionProcessor } from "./processor"
 import { Tool } from "@/tool/tool"
 import { Permission } from "@/permission"
+import { Question } from "@/question"
 import { ReloadGuard } from "@/project/reload-guard"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
@@ -45,7 +46,7 @@ import { Process } from "@/util/process"
 import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
-import { InstanceRuntime } from "@/project/instance-runtime"
+import { InstanceStore } from "@/project/instance-store"
 import { TaskTool, type TaskPromptOps } from "@/tool/task"
 import { SessionRunState } from "./run-state"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -64,8 +65,7 @@ import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
 
-// @ts-ignore
-globalThis.AI_SDK_LOG_WARNINGS = false
+Object.assign(globalThis, { AI_SDK_LOG_WARNINGS: false })
 
 const decodeMessageInfo = Schema.decodeUnknownExit(MessageV2.Info)
 const decodeMessagePart = Schema.decodeUnknownExit(MessageV2.Part)
@@ -132,6 +132,7 @@ export const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
     const reloadGuard = yield* ReloadGuard.Service
+    const store = yield* InstanceStore.Service
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -691,6 +692,44 @@ export const layer = Layer.effect(
         .pipe(Effect.orDie)
       if (Option.isSome(match) && match.value.info.role === "user") return match.value.info.model
       return yield* provider.defaultModel().pipe(Effect.orDie)
+    })
+
+    const commandMessage = Effect.fn("SessionPrompt.commandMessage")(function* (input: CommandInput, text: string) {
+      const ctx = yield* InstanceState.context
+      const parent = yield* sessions
+        .findMessage(input.sessionID, (message) => message.info.role === "user")
+        .pipe(Effect.orDie)
+      const ag = input.agent ? yield* agents.get(input.agent) : yield* agents.defaultInfo()
+      if (!ag) {
+        const error = new NamedError.Unknown({ message: `Agent not found: "${input.agent}".` })
+        yield* bus.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
+        throw error
+      }
+      const model = ag.model ?? (yield* currentModel(input.sessionID))
+      const info: MessageV2.Assistant = yield* sessions.updateMessage({
+        id: MessageID.ascending(),
+        sessionID: input.sessionID,
+        role: "assistant",
+        time: { created: Date.now(), completed: Date.now() },
+        parentID: Option.isSome(parent) ? parent.value.info.id : MessageID.ascending(),
+        modelID: model.modelID,
+        providerID: model.providerID,
+        mode: ag.name,
+        agent: ag.name,
+        variant: ag.variant,
+        path: { cwd: ctx.directory, root: ctx.worktree },
+        cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        finish: "stop",
+      })
+      const part = yield* sessions.updatePart({
+        id: PartID.ascending(),
+        sessionID: input.sessionID,
+        messageID: info.id,
+        type: "text",
+        text,
+      } satisfies MessageV2.TextPart)
+      return { info, parts: [part] }
     })
 
     const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
@@ -1517,71 +1556,15 @@ export const layer = Layer.effect(
       yield* elog.info("command", { sessionID: input.sessionID, command: input.command, agent: input.agent })
 
       if (input.command === Command.Default.RELOAD) {
-        if (input.arguments.trim()) {
-          const info: MessageV2.Assistant = {
-            id: MessageID.ascending(),
-            sessionID: input.sessionID,
-            role: "assistant",
-            time: { created: Date.now() },
-            parentID: MessageID.ascending(),
-            modelID: "" as unknown as ModelID,
-            providerID: "" as unknown as ProviderID,
-            mode: "",
-            agent: "",
-            path: { cwd: "", root: "" },
-            cost: 0,
-            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-          }
-          return {
-            info,
-            parts: [
-              {
-                id: PartID.ascending(),
-                sessionID: input.sessionID,
-                messageID: info.id,
-                type: "text",
-                text: "/reload does not accept arguments.",
-              } satisfies MessageV2.TextPart,
-            ],
-          } satisfies MessageV2.WithParts
-        }
         const ctx = yield* InstanceState.context
-        const reloadEffect = Effect.promise(() =>
-          InstanceRuntime.reloadInstance({ directory: ctx.directory }),
-        )
-        const result = yield* reloadGuard.run(reloadEffect).pipe(
-          Effect.catch((err) => Effect.succeed(err instanceof Error ? err : new Error("Reload failed."))),
-        )
-        const info: MessageV2.Assistant = {
-          id: MessageID.ascending(),
-          sessionID: input.sessionID,
-          role: "assistant",
-          time: { created: Date.now() },
-          parentID: MessageID.ascending(),
-          modelID: "" as unknown as ModelID,
-          providerID: "" as unknown as ProviderID,
-          mode: "",
-          agent: "",
-          path: result instanceof Error
-            ? { cwd: "", root: "" }
-            : { cwd: ctx.directory, root: ctx.worktree },
-          cost: 0,
-          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-        }
-        return {
-          info,
-          parts: [
-            {
-              id: PartID.ascending(),
-              sessionID: input.sessionID,
-              messageID: info.id,
-              type: "text",
-              text: result instanceof Error
-                ? result.message
-                : "Reloaded configuration.",
-            } satisfies MessageV2.TextPart,
-          ],
-        } satisfies MessageV2.WithParts
+        const text = input.arguments.trim()
+          ? "/reload does not accept arguments."
+          : yield* reloadGuard.run(store.reload({ directory: ctx.directory })).pipe(
+              Effect.as("Reloaded configuration."),
+              Effect.catch((err) => Effect.succeed(err instanceof Error ? err.message : "Reload failed.")),
+            )
+
+        return yield* commandMessage(input, text)
       }
 
       const cmd = yield* commands.get(input.command)
@@ -1712,12 +1695,14 @@ export const layer = Layer.effect(
 
 export const defaultLayer = Layer.suspend(() =>
   layer.pipe(
+    Layer.provide(ReloadGuard.layer),
     Layer.provide(SessionRunState.defaultLayer),
     Layer.provide(SessionStatus.defaultLayer),
     Layer.provide(SessionCompaction.defaultLayer),
     Layer.provide(SessionProcessor.defaultLayer),
     Layer.provide(Command.defaultLayer),
     Layer.provide(Permission.defaultLayer),
+    Layer.provide(Question.defaultLayer),
     Layer.provide(MCP.defaultLayer),
     Layer.provide(LSP.defaultLayer),
     Layer.provide(ToolRegistry.defaultLayer),
@@ -1741,7 +1726,6 @@ export const defaultLayer = Layer.suspend(() =>
         Bus.layer,
         CrossSpawnSpawner.defaultLayer,
         RuntimeFlags.defaultLayer,
-        ReloadGuard.defaultLayer,
       ),
     ),
   ),

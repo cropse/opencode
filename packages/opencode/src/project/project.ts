@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm"
 import { Database } from "@/storage/db"
 import { ProjectTable } from "./project.sql"
+
 import { PermissionTable, SessionTable } from "../session/session.sql"
 import { WorkspaceTable } from "../control-plane/workspace.sql"
 import * as Log from "@opencode-ai/core/util/log"

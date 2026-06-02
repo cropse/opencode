@@ -2,13 +2,13 @@ import { afterEach, describe, expect } from "bun:test"
 import path from "node:path"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Effect, Exit, Layer } from "effect"
-import { ConfigCommand } from "../../src/config/command"
+import { Config } from "../../src/config/config"
 import { InstanceLayer } from "../../src/project/instance-layer"
 import { InstanceStore } from "../../src/project/instance-store"
 import { disposeAllInstances, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
-const it = testEffect(Layer.mergeAll(InstanceLayer.layer, CrossSpawnSpawner.defaultLayer))
+const it = testEffect(Layer.mergeAll(InstanceLayer.layer, Config.defaultLayer, CrossSpawnSpawner.defaultLayer))
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -35,10 +35,10 @@ Hello from test command`,
       yield* store.provide({ directory }, Effect.void)
       yield* store.reload({ directory })
 
-      const commands = yield* Effect.promise(() => ConfigCommand.load(directory))
-      expect(commands["test"]).toBeDefined()
-      expect(commands["test"]?.description).toBe("Test command")
-      expect(commands["test"]?.template).toBe("Hello from test command")
+      const config = yield* store.provide({ directory }, Config.use.get())
+      expect(config.command?.["test"]).toBeDefined()
+      expect(config.command?.["test"]?.description).toBe("Test command")
+      expect(config.command?.["test"]?.template).toBe("Hello from test command")
     }),
   )
 
@@ -63,14 +63,14 @@ Hello from test command`,
       yield* store.provide({ directory }, Effect.void)
       yield* store.reload({ directory })
 
-      const commandsBefore = yield* Effect.promise(() => ConfigCommand.load(directory))
-      expect(commandsBefore["test"]).toBeDefined()
+      const configBefore = yield* store.provide({ directory }, Config.use.get())
+      expect(configBefore.command?.["test"]).toBeDefined()
 
       yield* Effect.promise(() => import("node:fs").then((fs) => fs.promises.unlink(commandFile)))
       yield* store.reload({ directory })
 
-      const commandsAfter = yield* Effect.promise(() => ConfigCommand.load(directory))
-      expect(commandsAfter["test"]).toBeUndefined()
+      const configAfter = yield* store.provide({ directory }, Config.use.get())
+      expect(configAfter.command?.["test"]).toBeUndefined()
     }),
   )
 })
@@ -157,7 +157,7 @@ Hello from good command`,
         Bun.write(
           path.join(commandsDir, "bad.md"),
           `---
-description: [invalid: yaml: {broken
+subtask: maybe
 ---
 Hello from bad command`,
         ),

@@ -1,5 +1,6 @@
 import * as InstanceState from "@/effect/instance-state"
 import { Project } from "@/project/project"
+import { ProjectSidebar } from "@/project/project-sidebar"
 import { ProjectID } from "@/project/schema"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
@@ -10,6 +11,7 @@ import { markInstanceForReload } from "../lifecycle"
 export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", (handlers) =>
   Effect.gen(function* () {
     const svc = yield* Project.Service
+    const sidebar = yield* ProjectSidebar.Service
 
     const list = Effect.fn("ProjectHttpApi.list")(function* () {
       return yield* svc.list()
@@ -48,6 +50,21 @@ export const projectHandlers = HttpApiBuilder.group(InstanceHttpApi, "project", 
       )
     })
 
-    return handlers.handle("list", list).handle("current", current).handle("initGit", initGit).handle("update", update)
+    const sidebarList = Effect.fn("ProjectHttpApi.sidebarList")(function* () {
+      return yield* sidebar.list()
+    })
+
+    const sidebarReplace = Effect.fn("ProjectHttpApi.sidebarReplace")(function* (ctx) {
+      yield* sidebar.replace(ctx.payload)
+      return yield* sidebar.list()
+    })
+
+    return handlers
+      .handle("list", list)
+      .handle("current", current)
+      .handle("initGit", initGit)
+      .handle("update", update)
+      .handle("sidebarList", sidebarList)
+      .handle("sidebarReplace", sidebarReplace)
   }),
 )

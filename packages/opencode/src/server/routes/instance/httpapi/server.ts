@@ -29,6 +29,7 @@ import { Installation } from "@/installation"
 import { InstanceLayer } from "@/project/instance-layer"
 import { Plugin } from "@/plugin"
 import { Project } from "@/project/project"
+import { ProjectSidebar } from "@/project/project-sidebar"
 import { ProviderAuth } from "@/provider/auth"
 import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { Provider } from "@/provider/provider"
@@ -206,6 +207,7 @@ export function createRoutes(
       Permission.defaultLayer,
       Plugin.defaultLayer,
       Project.defaultLayer,
+      ProjectSidebar.layer,
       ProviderAuth.defaultLayer,
       Provider.defaultLayer,
       Pty.defaultLayer,

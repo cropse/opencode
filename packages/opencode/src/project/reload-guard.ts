@@ -28,7 +28,7 @@ export const layer = Layer.effect(
     const isBusy = Effect.gen(function* () {
       const sessions = yield* status.list()
       for (const s of sessions.values()) {
-        if (s.type === "busy") return true
+        if (s.type === "busy" || s.type === "retry") return true
       }
       const permissions = yield* permission.list()
       if (permissions.length > 0) return true
@@ -59,9 +59,8 @@ export const atomicReload = <A, E, R>(
   disposePrevious: Effect.Effect<void>,
 ): Effect.Effect<A, E, R> =>
   Effect.gen(function* () {
-    const result = yield* loadNew
     yield* disposePrevious
-    return result
+    return yield* loadNew
   })
 
 export * as ReloadGuard from "./reload-guard"

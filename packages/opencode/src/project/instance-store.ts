@@ -145,8 +145,10 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
               ),
             )
             if (Exit.isFailure(exit)) {
-              if (previous) cache.set(directory, previous)
-              else cache.delete(directory)
+              if (cache.get(directory) === entry) {
+                if (previous) cache.set(directory, previous)
+                else cache.delete(directory)
+              }
             }
             yield* Deferred.done(entry.deferred, exit).pipe(Effect.asVoid)
           }).pipe(Effect.forkIn(scope, { startImmediately: true }))
